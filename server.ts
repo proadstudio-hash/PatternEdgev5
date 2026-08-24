@@ -6,6 +6,7 @@ import cors from 'cors';
 import { setupRoutes } from './server/routes.js';
 import { setupDatasetRoutes } from './server/datasetRoutes.js';
 import { initializeDatabase } from './server/db.js';
+import { applyDatabaseSafety } from './server/dbSafety.js';
 import { populateSymbols } from './server/engine/dataSync.js';
 
 async function startServer() {
@@ -17,6 +18,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   initializeDatabase();
+  applyDatabaseSafety();
   try {
     populateSymbols();
   } catch(e) { /* ignore */ }
