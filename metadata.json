@@ -1,0 +1,8 @@
+{
+  "name": "PatternEdge v5",
+  "description": "A quantitative trading research UI for statistical short-term market setups.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
