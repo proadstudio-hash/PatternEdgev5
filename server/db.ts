@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
+import path from 'path';
 
 let db: any;
 function openDb() {
@@ -7,8 +8,12 @@ function openDb() {
     return new Database('patternedge.db');
   } catch (e: any) {
     if (e.code === 'SQLITE_CORRUPT') {
-      console.error("Database corrupted, attempting to delete and recreate.");
-      fs.unlinkSync('patternedge.db');
+      const source = path.resolve('patternedge.db');
+      const quarantineDir = path.resolve('backups');
+      fs.mkdirSync(quarantineDir, { recursive: true });
+      const quarantined = path.join(quarantineDir, `patternedge_corrupt_${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
+      console.error(`Database corruption detected. Preserving the damaged file at ${quarantined} before creating a new database.`);
+      if (fs.existsSync(source)) fs.renameSync(source, quarantined);
       return new Database('patternedge.db');
     }
     throw e;
@@ -169,6 +174,19 @@ export function initializeDatabase() {
       max_adverse_excursion REAL,
       event_strength_class TEXT
     );`,
+    `CREATE TABLE IF NOT EXISTS advanced_decline_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT,
+      event_start TEXT,
+      event_end TEXT,
+      start_price REAL,
+      min_price REAL,
+      max_drop_percent REAL,
+      duration_bars INTEGER,
+      time_to_min INTEGER,
+      max_adverse_bounce REAL,
+      event_strength_class TEXT
+    );`,
     `CREATE TABLE IF NOT EXISTS advanced_predictions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       scan_run_id TEXT,
@@ -216,6 +234,34 @@ export function initializeDatabase() {
       maxAdverseExcursion REAL,
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS dataset_ranges (
+      symbol TEXT NOT NULL,
+      interval TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'yahoo',
+      first_timestamp TEXT,
+      last_timestamp TEXT,
+      bar_count INTEGER DEFAULT 0,
+      requested_from TEXT,
+      requested_to TEXT,
+      last_sync TEXT,
+      quality_status TEXT DEFAULT 'unknown',
+      dataset_version INTEGER DEFAULT 1,
+      PRIMARY KEY(symbol, interval, provider)
+    );`,
+    `CREATE TABLE IF NOT EXISTS data_sync_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      interval TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      requested_from TEXT,
+      requested_to TEXT,
+      fetched_from TEXT,
+      fetched_to TEXT,
+      bars_fetched INTEGER DEFAULT 0,
+      status TEXT,
+      message TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );`
   ];
 
@@ -228,7 +274,12 @@ export function initializeDatabase() {
     }
   }
 
-  // Column migrations
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol_interval_datetime ON ohlcv(symbol, interval, datetime);
+    CREATE INDEX IF NOT EXISTS idx_trained_patterns_lookup ON trained_patterns(symbol, setup_name, training_timeframe);
+    CREATE INDEX IF NOT EXISTS idx_data_sync_lookup ON data_sync_log(symbol, interval, created_at);
+  `);
+
   try {
     const ohlcvInfo = db.prepare("PRAGMA table_info(ohlcv)").all();
     if (!ohlcvInfo.find((c: any) => c.name === 'interval')) {
@@ -303,7 +354,11 @@ export function initializeDatabase() {
       "ALTER TABLE scanner_results ADD COLUMN growth_strength REAL",
       "ALTER TABLE scanner_results ADD COLUMN growth_speed REAL",
       "ALTER TABLE scanner_results ADD COLUMN growth_duration INTEGER",
-      "ALTER TABLE scanner_results ADD COLUMN max_estimated_value REAL"
+      "ALTER TABLE scanner_results ADD COLUMN max_estimated_value REAL",
+      "ALTER TABLE scanner_results ADD COLUMN decline_strength REAL",
+      "ALTER TABLE scanner_results ADD COLUMN decline_speed REAL",
+      "ALTER TABLE scanner_results ADD COLUMN decline_duration INTEGER",
+      "ALTER TABLE scanner_results ADD COLUMN min_estimated_value REAL"
     ];
     for (const sql of migrations) {
        try { db.exec(sql); } catch(e){}
@@ -313,16 +368,12 @@ export function initializeDatabase() {
     // Parent catch
   }
 
-  // Seed symbols from configuration
   const insertSym = db.prepare('INSERT OR IGNORE INTO symbols (symbol, name, sector) VALUES (?, ?, ?)');
   const updateSym = db.prepare('UPDATE symbols SET name = ?, sector = ? WHERE symbol = ?');
-  
   db.transaction(() => {
      for (const sym of ALL_SYMBOLS) {
         const result = insertSym.run(sym.symbol, sym.name, sym.sector);
-        if (result.changes === 0) {
-           updateSym.run(sym.name, sym.sector, sym.symbol);
-        }
+        if (result.changes === 0) updateSym.run(sym.name, sym.sector, sym.symbol);
      }
   })();
 
