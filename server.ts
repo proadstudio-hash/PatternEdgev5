@@ -4,6 +4,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import cors from 'cors';
 import { setupRoutes } from './server/routes.js';
+import { setupDatasetRoutes } from './server/datasetRoutes.js';
 import { initializeDatabase } from './server/db.js';
 import { populateSymbols } from './server/engine/dataSync.js';
 
@@ -15,21 +16,18 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Initialize DB and background tasks
   initializeDatabase();
   try {
     populateSymbols();
   } catch(e) { /* ignore */ }
 
-  // API Routes
   try {
-     setupRoutes(app);
+    setupRoutes(app);
+    setupDatasetRoutes(app);
   } catch(e) {
-     console.error(e);
+    console.error(e);
   }
 
-
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
