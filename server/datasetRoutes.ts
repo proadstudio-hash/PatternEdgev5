@@ -2,6 +2,7 @@ import type { Application } from 'express';
 import { getDb } from './db.js';
 import { CANONICAL_TRAINING_PLAN } from './engine/trainingPlan.js';
 import { exportStoredDataset, getDatasetManifest, syncMarketData } from './engine/marketDataService.js';
+import { analyzeMultiHorizon } from './engine/multiHorizonAnalysis.js';
 
 export function setupDatasetRoutes(app: Application) {
   app.get('/api/datasets/manifest', (req, res) => {
@@ -65,6 +66,15 @@ export function setupDatasetRoutes(app: Application) {
         results.push({ slice, results: sliceResults });
       }
       res.json({ status: 'ok', plan: CANONICAL_TRAINING_PLAN, results });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/live/multi-horizon/:symbol', async (req, res) => {
+    try {
+      const result = await analyzeMultiHorizon(req.params.symbol.toUpperCase());
+      res.json(result);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
